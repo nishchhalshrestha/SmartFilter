@@ -1,18 +1,18 @@
 {
   "visual": {
-    "name": "smartFilterByOKViz",
-    "displayName": "Smart Filter by OKViz",
-    "guid": "SmartFilterBySQLBI1458262140625",
+    "name": "smartFilterByOKVizModByNishchhal",
+    "displayName": "Smart Filter by OKViz Mod By Nishchhal",
+    "guid": "SmartFilterBySQLBI1458262140625990",
     "visualClassName": "Visual",
     "version": "1.1.6",
-    "description": "Smart Filter by OKViz works like an observer, showing the current filters set in the report page, or like a slicer, allowing you to choose records from a drop-down list or search by typing a few letters.",
-    "supportUrl": "http://okviz.com/smart-filter/",
-    "gitHubUrl": "https://github.com/okviz/smartfilter"
+    "description": "Smart Filter by OKViz works like an observer, showing the current filters set in the report page, or like a slicer, allowing you to choose records from a drop-down list or search by typing a few letters. This has been modified by nishchhal to cater delimiter and contains filter using Advanced Filter API.",
+    "supportUrl": "https://github.com/nishchhalshrestha/SmartFilter",
+    "gitHubUrl": "https://github.com/nishchhalshrestha/SmartFilter"
   },
   "apiVersion": "1.7.0",
   "author": {
-    "name": "OKViz - a trademark of SQLBI",
-    "email": "support@okviz.com"
+    "name": "OKViz - a trademark of SQLBI MOD by nishchhal",
+    "email": "nishchhal@outlook.com"
   },
   "assets": {
     "icon": "assets/icon.png"
@@ -26,7 +26,8 @@
     "node_modules/powerbi-visuals-utils-svgutils/lib/index.js",
     "node_modules/powerbi-visuals-utils-dataviewutils/lib/index.js",
     "node_modules/powerbi-visuals-utils-formattingutils/lib/index.js",
-    "node_modules/powerbi-visuals-utils-interactivityutils/lib/index.js"
+    "node_modules/powerbi-visuals-utils-interactivityutils/lib/index.js",
+    "node_modules/powerbi-models/dist/models.js"
   ],
   "style": "style/visual.less",
   "capabilities": "capabilities.json"

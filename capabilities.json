@@ -45,6 +45,13 @@
         "search": {
             "displayName": "Filter box",
             "properties": {
+                "delimiter": {
+                    "displayName": "Delimiter",
+                    "placeHolderText": "Eg comma(,)",
+                    "type": {
+                        "text": true
+                    }
+                },
                 "limit": {
                     "displayName": "Max items",
                     "placeHolderText": "Auto",

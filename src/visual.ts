@@ -60,6 +60,7 @@ module powerbi.extensibility.visual {
             filter?: ISemanticFilter;
         };
         search: {
+            delimiter?: string;
             limit?: number;
             compressMultiple: boolean;
             backFill: Fill;
@@ -81,6 +82,7 @@ module powerbi.extensibility.visual {
         return {
             general: {},
             search: {
+                delimiter: "",
                 compressMultiple: false,
                 backFill: {solid: { color: "#F2C811" } },
                 fontSize: 10,
@@ -114,6 +116,7 @@ module powerbi.extensibility.visual {
                     filter: getValue<ISemanticFilter>(objects, "general", "filter", settings.general.filter)
                 },
                 search: {
+                    delimiter: getValue<string>(objects, "search", "delimiter", settings.search.delimiter),
                     limit: getValue<number>(objects, "search", "limit", settings.search.limit),
                     compressMultiple: getValue<boolean>(objects, "search", "compressMultiple", settings.search.compressMultiple),
                     fontSize: getValue<number>(objects, "search", "fontSize", settings.search.fontSize),
@@ -140,14 +143,25 @@ module powerbi.extensibility.visual {
         let filters = (settings.general.selection ? JSON.parse(settings.general.selection) : {});
 
         if (hasCategoricalData) {
-
+            let delimiter = settings.search.delimiter.trim();  
             let dataCategorical = dataViews[0].categorical;
             for (let g = 0; g < dataCategorical.categories.length; g++) {
                 
                 let dataPoints: VisualDataPoint[] = [];
 
                 let category = dataCategorical.categories[g]; 
-                let values = category.values;
+
+                let values = [];
+                if(delimiter == "") {    
+                    values = category.values;
+                } else {
+                    for (let i = 0; i < category.values.length; i++) {
+                        var splitted = String(category.values[i]).split(delimiter);
+                        for(let j = 0; j < splitted.length; j++) {
+                            values.push(splitted[j].trim());
+                        }
+                    }         
+                }       
 
                 let categoryName = category.source.displayName;
 
@@ -251,6 +265,8 @@ module powerbi.extensibility.visual {
         private model: VisualViewModel;
         private tokenizers: Tokenizer[];
         private element: JQuery; 
+        private dataView: DataView;
+        private callbacks: SampleSlicerCallbacks;
 
         constructor(options: VisualConstructorOptions) {
 
@@ -264,6 +280,7 @@ module powerbi.extensibility.visual {
             this.host = options.host;
             this.selectionIdBuilder = options.host.createSelectionIdBuilder();
             this.selectionManager = options.host.createSelectionManager();
+            this.callbacks = this.getCallbacks();
 
             this.model = { dataGroups: [], filters: [], settings: <VisualSettings>{} };
 
@@ -271,6 +288,14 @@ module powerbi.extensibility.visual {
         }
         
         public update(options: VisualUpdateOptions) {
+            if (!options ||
+                !options.dataViews ||
+                !options.dataViews[0] ||
+                !options.viewport) {
+                return;
+            }
+            
+            this.dataView = options.dataViews[0];
 
             let dataChanged = (options.type == VisualUpdateType.Data || options.type == VisualUpdateType.All || $('.chart').length == 0);
             if (dataChanged) {
@@ -370,12 +395,14 @@ module powerbi.extensibility.visual {
                                     for (let s = 0; s < dataPoint.identities.length; s++) {
                                         if (this.canSelectIdentity(dataPoint.identities[s], true)) {
                                             selectionManager.select(dataPoint.identities[s], true);
-                                            selectionManager.applySelectionFilter();
+                                            //selectionManager.applySelectionFilter();
                                         }
                                     }
                                 }
                             }
                         }
+
+                        //this.applyCustomFilter(this, selectionManager);
                         
 
                         if (!hasSomeSelection && this.model.settings.search.observerMode){
@@ -392,7 +419,6 @@ module powerbi.extensibility.visual {
                         let performSelection = function (value, add) {
 
                             selectionManager.clear();
-
                             for (let i = 0; i < self.model.dataGroups[g].dataPoints.length; i++){
                                 let dataPoint = self.model.dataGroups[g].dataPoints[i];
                                 if (dataPoint !== undefined) {
@@ -419,16 +445,18 @@ module powerbi.extensibility.visual {
                                                 }
                                             }
 
-                                            if (add && !found) 
+                                            if (add && !found) {                                                
                                                 self.model.filters[categoryName].push(identities[s].getKey());
+                                            }
                                     
-                                            if (self.canSelectIdentity(identities[s], add)) 
-                                               selectionManager.select(identities[s], true);
+                                            if (self.canSelectIdentity(identities[s], add)) {
+                                               selectionManager.select(identities[s], true);             
+                                            }
 
-                                        }
+                                        }                                        
                                         
-                                        selectionManager.applySelectionFilter();
-
+                                        //selectionManager.applySelectionFilter();                                        
+                                        
                                         host.persistProperties({
                                             merge: [{
                                                 objectName: 'general',
@@ -438,12 +466,13 @@ module powerbi.extensibility.visual {
                                                 },
                                             }]
                                         });
-
                                         break;
                                     }
                                 }
 
                             }      
+
+                            self.applyCustomFilter(self, selectionManager);                            
                         }; 
 
                         tokenizer.onAddToken = function (value, text, e) {
@@ -496,6 +525,26 @@ module powerbi.extensibility.visual {
             OKVizUtility.applyColorBlindVision(this.model.settings.colorBlind.vision, d3.select(this.element[0]));
         }
 
+        private applyCustomFilter(self : Visual, selectionManager : ISelectionManager) {
+            let conditions: IAdvancedFilterCondition[] = [];
+            let target: IFilterColumnTarget = self.callbacks.getAdvancedFilterColumnTarget();
+            for (let i = 0; i < self.model.dataGroups[0].dataPoints.length; i++){
+                let dataPoint = self.model.dataGroups[0].dataPoints[i];
+                if(dataPoint.selected) {
+                    conditions.push({
+                        operator: "Contains",
+                        value: dataPoint.displayName
+                    });
+                }
+            }                           
+            if(conditions.length > 0) {
+                let filter: IAdvancedFilter = new window['powerbi-models'].AdvancedFilter(target, conditions.length == 1 ? "And" : "Or", conditions);
+                self.callbacks.applyAdvancedFilter(filter);
+            } else {
+                selectionManager.applySelectionFilter();
+            }
+        }
+
         public canSelectIdentity(identity: visuals.ISelectionId, add) {
 
             //Check if the filter is present in each category
@@ -534,6 +583,13 @@ module powerbi.extensibility.visual {
             switch(objectName) {
                 
                  case 'search':
+                    objectEnumeration.push({
+                        objectName: objectName,
+                        properties: {
+                            "delimiter": this.model.settings.search.delimiter
+                        },
+                        selector: null
+                    });
 
                     objectEnumeration.push({
                         objectName: objectName,
@@ -595,6 +651,76 @@ module powerbi.extensibility.visual {
             };
 
             return objectEnumeration;
+        }
+
+        /**
+         *  Callbacks consumed by the SelectionBehavior class
+         * */
+        private getCallbacks(): SampleSlicerCallbacks {
+            let callbacks: SampleSlicerCallbacks = {};
+
+            callbacks.applyAdvancedFilter = (filter: IAdvancedFilter): void => {
+                this.host.applyJsonFilter(filter, "general", "filter");
+            };
+
+            callbacks.getAdvancedFilterColumnTarget = (): IFilterColumnTarget => {
+                let categories: DataViewCategoricalColumn = this.dataView.categorical.categories[0];
+
+                let target: IFilterColumnTarget = {
+                    table: categories.source.queryName.substr(0, categories.source.queryName.indexOf('.')),
+                    column: categories.source.displayName
+                };
+
+                return target;
+            };
+
+            callbacks.persistSelectionState = (selectionIds: string[]): void => {
+                this.host.persistProperties({
+                                            merge: [{
+                                                objectName: 'general',
+                                                selector: null,
+                                                properties: {
+                                                    'selection': JSON.stringify(this.model.filters)
+                                                },
+                                            }]
+                                        });
+                /*this.host.persistProperties(<VisualObjectInstancesToPersist>{
+                    merge: [{
+                        objectName: "general",
+                        selector: null,
+                        properties: {
+                            selection: selectionIds && JSON.stringify(selectionIds) || "",
+                            rangeSelectionStart: JSON.stringify(this.formatValue(this.behavior.scalableRange.getValue().min)),
+                            rangeSelectionEnd: JSON.stringify(this.formatValue(this.behavior.scalableRange.getValue().max))
+                        }
+                    }]
+                });
+                this.isSelectionSaved = true;*/
+            };
+
+            callbacks.restorePersistedRangeSelectionState = (): void => {
+                /*let rangeSelectionStart: string = JSON.parse(this.slicerData.slicerSettings.general.rangeSelectionStart);
+                let rangeSelectionEnd: string = JSON.parse(this.slicerData.slicerSettings.general.rangeSelectionEnd);
+
+                if (rangeSelectionStart) {
+                    this.$start.val(rangeSelectionStart);
+                    this.onRangeInputTextboxChange(rangeSelectionStart, RangeValueType.Start);
+                }
+                if (rangeSelectionEnd) {
+                    this.$end.val(rangeSelectionEnd);
+                    this.onRangeInputTextboxChange(rangeSelectionEnd, RangeValueType.End);
+                }*/
+            };
+
+            callbacks.getPersistedSelectionState = (): powerbi.extensibility.ISelectionId[] => {
+                return [];
+                /*try {
+                    return JSON.parse(this.slicerData.slicerSettings.general.selection) || [];
+                } catch (ex) {
+                    return [];
+                }*/
+            };
+            return callbacks;
         }
 
     }
@@ -1222,5 +1348,13 @@ module powerbi.extensibility.visual {
                 .replace(/</g, '&lt;')
                 .replace(/>/g, '&gt;');
         }
+    }
+
+    export interface SampleSlicerCallbacks {
+        getPersistedSelectionState?: () => powerbi.extensibility.ISelectionId[];
+        persistSelectionState?: (selectionIds: string[]) => void;
+        restorePersistedRangeSelectionState?: () => void;
+        applyAdvancedFilter?: (filter: IAdvancedFilter) => void;
+        getAdvancedFilterColumnTarget?: () => IFilterColumnTarget;
     }
 }
