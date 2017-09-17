@@ -150,7 +150,6 @@ module powerbi.extensibility.visual {
                 let dataPoints: VisualDataPoint[] = [];
 
                 let category = dataCategorical.categories[g]; 
-
                 let values = [];
                 if(delimiter == "") {    
                     values = category.values;
@@ -162,9 +161,19 @@ module powerbi.extensibility.visual {
                         }
                     }         
                 }       
+                values = values.sort();
+                let distinctValues = [];
+                for (var i = 0; i <= values.length - 1; i++) {
+                    if(distinctValues.filter(function(el) {
+                        return el == values[i];
+                    }).length == 0) {
+                        distinctValues.push(values[i]);
+                    }
+                }
+                category.values = distinctValues;
+                values = distinctValues;
 
                 let categoryName = category.source.displayName;
-
                 if (filters.constructor == Array) {
 
                     //Keep compatible with old filters format
@@ -379,7 +388,7 @@ module powerbi.extensibility.visual {
                             if (dataPoint.identities.length > 0) {
                                 let value = tokenizer.sanitize(Object.prototype.toString.call(dataPoint.displayName) === '[object Date]' ? dateFormat(dataPoint.displayName) : String(dataPoint.displayName));
 
-                                values.push(value);
+                                values.push(value);                                
 
                                 let $option = $('<option value="' + value + '">' + value + '</option>')    
                                         .appendTo($comboBox);
@@ -417,7 +426,6 @@ module powerbi.extensibility.visual {
 
                         var self = this;
                         let performSelection = function (value, add) {
-
                             selectionManager.clear();
                             for (let i = 0; i < self.model.dataGroups[g].dataPoints.length; i++){
                                 let dataPoint = self.model.dataGroups[g].dataPoints[i];
@@ -432,8 +440,8 @@ module powerbi.extensibility.visual {
                                         for (let s = 0; s < identities.length; s++) {
 
                                             let found = false;
-                                                if (categoryName in self.model.filters) {
-                                                for (let ii = 0; ii < self.model.filters[categoryName].length; ii++) {
+                                            if (categoryName in self.model.filters) {
+                                            for (let ii = 0; ii < self.model.filters[categoryName].length; ii++) {
                                                     
                                                     if (self.model.filters[categoryName][ii] === identities[s].getKey()) {
                                                         if (!add)
@@ -473,11 +481,77 @@ module powerbi.extensibility.visual {
                             }      
 
                             self.applyCustomFilter(self, selectionManager);                            
+                        };
+
+                        let performSelectionForMultipleValues = function (values, add) {
+                            selectionManager.clear();
+                            for (var  valueIndex = 0; valueIndex <= values.length - 1; valueIndex++) {
+                                let value = values[valueIndex];                               
+                                for (let i = 0; i < self.model.dataGroups[g].dataPoints.length; i++){
+                                    let dataPoint = self.model.dataGroups[g].dataPoints[i];
+                                    if (dataPoint !== undefined) {
+
+                                        if (value == dataPoint.displayName) {
+
+                                            dataPoint.selected = add;
+
+                                            let categoryName = self.model.dataGroups[g].displayName;
+                                            let identities = dataPoint.identities.concat(dataPoint.hiddenIdentities);
+                                            for (let s = 0; s < identities.length; s++) {
+
+                                                let found = false;
+                                                if (categoryName in self.model.filters) {
+                                                for (let ii = 0; ii < self.model.filters[categoryName].length; ii++) {
+                                                        
+                                                        if (self.model.filters[categoryName][ii] === identities[s].getKey()) {
+                                                            if (!add)
+                                                                self.model.filters[categoryName].splice(ii, 1)
+                                                        
+                                                            found = true;
+                                                            break;
+                                                        }
+                                                    }
+                                                }
+
+                                                if (add && !found) {                                                
+                                                    self.model.filters[categoryName].push(identities[s].getKey());
+                                                }
+                                        
+                                                if (self.canSelectIdentity(identities[s], add)) {
+                                                   selectionManager.select(identities[s], true);             
+                                                }
+
+                                            }                                        
+                                            
+                                            //selectionManager.applySelectionFilter();                                        
+                                            
+                                            host.persistProperties({
+                                                merge: [{
+                                                    objectName: 'general',
+                                                    selector: null,
+                                                    properties: {
+                                                        'selection': JSON.stringify(self.model.filters)
+                                                    },
+                                                }]
+                                            });
+                                            break;
+                                        }
+                                    }
+                                }      
+                            }
+                            self.applyCustomFilter(self, selectionManager);   
+                                                  
                         }; 
 
                         tokenizer.onAddToken = function (value, text, e) {
                             setTimeout(function(){
                                 performSelection(value, true);     
+                            }, 100);
+                        };
+
+                        tokenizer.onAddTokenMultipleValues = function (values, text, e) {
+                            setTimeout(function(){
+                                performSelectionForMultipleValues(values, true);     
                             }, 100);
                         };
 
@@ -748,6 +822,7 @@ module powerbi.extensibility.visual {
         private dropdown: JQuery;
         private dropdownArrow: JQuery;
         private dropdownResetter: JQuery;
+        private dropdownSelectAll: JQuery;
         public container: JQuery; 
         private tokensContainer: JQuery;
         private searchToken: JQuery;
@@ -760,6 +835,7 @@ module powerbi.extensibility.visual {
 
         //Events
         public onAddToken: any = function (value, text, e) { };
+        public onAddTokenMultipleValues: any = function (values, text, e) { };
         public onRemoveToken: any = function (value, e) { };
         public onClear: any = function (e) { };
         public onDropdownAddItem: any = function (value, text, e) { };
@@ -794,6 +870,12 @@ module powerbi.extensibility.visual {
                         $this.clear(false);
                     });
             }
+            this.dropdownSelectAll = $('<span class="slicerHeaderSelectAll"><span class="selectAll" title= "Select All"> </span></span>')
+                    .on('click', function (e) {
+                        //e.stopImmediatePropagation();
+                        //$this.searchInput.val('');
+                        $this.selectAll();
+                    });
             this.tokensContainer = $('<ul />')
                 .addClass('TokensContainer');
 
@@ -816,7 +898,7 @@ module powerbi.extensibility.visual {
 
             if (resetter)
                 this.container.append(this.dropdownResetter)
-
+            this.container.append(this.dropdownSelectAll);
             this.container.insertAfter(this.select);
 
             this.tokensContainer.on('click', function (e) {
@@ -846,7 +928,7 @@ module powerbi.extensibility.visual {
 
             this.searchInput.on('paste', function () {
                 setTimeout(function () { $this.resizeSearchInput(); }, 10);
-                setTimeout(function () {
+                setTimeout(function () {                    
                     var paste_elements = $this.searchInput.val().split(',');
                     if (paste_elements.length > 1) {
                         $.each(paste_elements, function (_, value) {
@@ -1240,7 +1322,6 @@ module powerbi.extensibility.visual {
 
             item.insertBefore(this.searchToken);
 
-
             if (useMultipleToken) {
                 var $tokenMultiple = $('li.TokenMultiple', this.tokensContainer);
                 if ($tokenMultiple.length == 0) {
@@ -1267,7 +1348,111 @@ module powerbi.extensibility.visual {
 
             this.resetSearchInput();
             this.dropdownHide();
+            return this;
+        }
 
+        public tokenAddMultipleValues(values, text?, first?) {
+            let selectedItems = $('li.Token', this.tokensContainer).length;
+            let useMultipleToken = (this.compressMultiple && selectedItems > 0);
+            this.searchInput.attr('placeholder', '');
+
+            for (var i =  0; i <= values.length - 1; i++) {
+                let value = values[i];            
+                value = this.sanitize(value);
+                if (value == undefined || value == '') {
+                    return this;
+                }
+
+                text = value;
+                first = first || false;
+
+                if (!this.readonly && this.maxElements > 0 && $('li.Token', this.tokensContainer).length >= this.maxElements) {
+                    this.resetSearchInput();
+                    return this;
+                }
+
+                var $this = this;
+                var close_btn = (this.readonly ? '' : $('<a />')
+                    .addClass('Close')
+                    .css({
+                        'background-color': this.elementsBackColor,
+                        'color': this.elementsColor,
+                        'padding-top': (((this.elementsFontSize * 1.5) - 4) / 2) + 'px'
+                    })
+                    .text("×")
+                    .on('click', function (e) {
+                        //e.stopImmediatePropagation();
+                        $this.tokenRemove(value);
+                    }));
+
+                if ($('option[value="' + value + '"]', this.select).length > 0) {
+                    if (!first && ($('option[value="' + value + '"]', this.select).attr('selected') === 'selected' ||
+                        $('option[value="' + value + '"]', this.select).prop('selected') === true)) {
+                        this.onDuplicateToken(value, text, this);
+                    }
+                    $('option[value="' + value + '"]', this.select).attr('selected', 'selected').prop('selected', true);
+
+                } else if ($('li[data-value="' + value + '"]', this.dropdown).length > 0) {
+
+                    var option = $('<option />')
+                        .attr('selected', 'selected')
+                        .attr('value', value)
+                        .attr('data-type', 'custom')
+                        .prop('selected', true)
+                        .text(text);
+                    this.select.append(option);
+                } else {
+                    this.resetSearchInput();
+                    return this;
+                }
+
+                if ($('li.Token[data-value="' + value + '"]', this.tokensContainer).length > 0) {
+                    return this;
+                }
+
+                var item = $('<li />')
+                    .addClass('Token')
+                    .attr('data-value', value)
+                    .append('<span />')
+                    .css({
+                        'font-size': this.elementsFontSize + 'px',
+                        'background-color': this.elementsBackColor,
+                        'color': this.elementsColor
+                    })
+                    .prepend(close_btn);
+
+                item.find('span').text(text)
+                    
+
+                if (useMultipleToken) 
+                    item.hide();
+
+                item.insertBefore(this.searchToken);
+
+                if (useMultipleToken) {
+                    var $tokenMultiple = $('li.TokenMultiple', this.tokensContainer);
+                    if ($tokenMultiple.length == 0) {
+                        $tokenMultiple = $('<li />')
+                            .addClass('TokenMultiple')
+                            .append('<span />')
+                            .css({
+                                'font-size': this.elementsFontSize + 'px',
+                                'font-style': 'italic',
+                                'background-color': this.elementsBackColor,
+                                'color': this.elementsColor
+                            })
+                            .insertBefore(this.searchToken);
+
+                    }
+                    $tokenMultiple.find('span').text((this.placeholder != '' ? this.placeholder : 'Multiple') + ' (' + (selectedItems + 1) + ')');
+
+                    $('li.Token').hide();
+                }
+            }
+            this.onAddTokenMultipleValues(values, text, this);
+
+            this.resetSearchInput();
+            this.dropdownHide();
             return this;
         }
 
@@ -1304,6 +1489,32 @@ module powerbi.extensibility.visual {
             });
 
             if (!first) this.onClear(this);
+            this.dropdownHide();
+
+            return this;
+        }
+
+        public selectAll() {
+            var $this = this;
+            var tmp = $("option", this.select);
+            var tmpSelected = $("option:selected", this.select);
+
+            let selectedValues = [];
+            tmpSelected.each(function() {
+                selectedValues.push($(this).val());
+            });
+
+            let values = [];
+            tmp.each(function (index) { 
+                let value = $(this).val();        
+                if(selectedValues.filter(function(el) {
+                    return el == value;
+                }).length  == 0) {       
+                    values.push(value);
+                }
+            });
+            console.log(values);
+            $this.tokenAddMultipleValues(values);
             this.dropdownHide();
 
             return this;
